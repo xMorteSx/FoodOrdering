@@ -1,0 +1,790 @@
+﻿@page "/edit-order/{orderId:int}"
+@using FoodOrdering.Commands.ChatMessages
+@using FoodOrdering.Models
+@using FoodOrdering.Models.DTO
+@using FoodOrdering.Models.Pagination
+@using Microsoft.Graph.Models
+@using FoodOrdering.Exceptions
+@using Microsoft.AspNetCore.SignalR.Client
+@inject GraphService MyGraphService
+@inject NavigationManager MyNavigationManager
+@inject IJSRuntime JSRuntime
+@inject IHttpClientFactory ClientFactory
+@rendermode InteractiveServer
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; margin-top: 200px">
+        <div >@errorMessage</div>
+        <div>
+            <FluentButton Appearance="Appearance.Accent" style=" margin: 20px 0" @onclick="BackToOrdersListButton">Wróć</FluentButton>
+        </div>
+    </div>
+}
+else if (order != null && currentUser != null && isLoaded)
+{
+    <div style="max-width: 600px; margin: 0 auto;">
+        <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; max-width: 600px">
+            <h3>Przegląd zamówienia <span class="order_label">@order.Name</span></h3>
+
+            <div class="order">
+                <div class="order_menu">
+                    <div style="padding: 10px" class="left_order_menu">
+                        <div><b>Restauracja: </b><span>@order.RestaurantName</span></div>
+                        <div><b>Min kwota zamówienia: </b>@order.MinPrice zł</div>
+                        <div><b>Opłata za dowóz: </b>@order.DeliveryPrice zł</div>
+                        <div><b>Darmowa dostawa od: </b>@order.FreeDeliveryPrice zł</div>
+                    </div>
+                    <div style="padding: 10px" class="right_order_menu">
+                        <div><b>Zamawiający: </b>@order.UserEmail</div>
+                        <div><b>Numer telefonu: </b>+48 @order.PhoneNumber</div>
+                        <div><b>Konto bankowe: </b>@order.BankAccountNumber</div>
+                    </div>
+                </div>
+
+                @if (currentUser.Mail == order.UserEmail)
+                {
+                    <div>
+                        @switch (orderStatus)
+                        {
+                            case "Otwarte":
+                                <div><b>Status zamówienia: </b><FluentCombobox Items="orderStatuses" @bind-SelectedOption="orderStatus" @onchange="ChangeOrderStatus"></FluentCombobox></div>
+                                break;
+                            case "Zamówione":
+                                orderStatuses = new List<String> { "Zamówione", "Zamknięte" };
+                                <div><b>Status zamówienia: </b><FluentCombobox Items="orderStatuses" @bind-SelectedOption="orderStatus" @onchange="ChangeOrderStatus"></FluentCombobox></div>
+                                break;
+                            case "Zamknięte":
+                                <div><b>Status zamówienia: </b>@orderStatus</div>
+                                break;
+                        }
+                    </div>
+
+                    if (orderStatus != "Zamknięte")
+                    {
+                        <div style="display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                            <p>Edytuj dane zamówienia</p>
+                            <div>
+                                <FluentButton Appearance="Appearance.Neutral" @onclick="() => EditOrderData(order.Id)">Edytuj</FluentButton>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div><b>Status zamówienia: </b>@orderStatus</div>
+                }
+            </div>
+
+            <div style="margin-top: 20px;">
+                @if (products == null)
+                {
+                    <p>Ładowanie...</p>
+                }
+                else if (products.Items.Count > 0)
+                {
+                    <table class="ms-Table">
+                        <thead>
+                            <tr>
+                                <th>Użytkownik</th>
+                                <th>Nazwa produktu</th>
+                                <th>Ilość</th>
+                                <th>Cena</th>
+                                <th>Komentarz</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (currentUser != null && organizationUserNames != null && orderUserName != null)
+                            {
+                                @foreach (var product in products.Items)
+                                {
+                                    <tr style="text-align: center; max-height: 30px" class="order_products_tr">
+
+                                        @if (orderStatus != "Zamknięte")
+                                        {
+                                            @* User *@
+                                            @if (currentUser.Mail == order.UserEmail)
+                                            {
+                                                <td><FluentCombobox Appearance="Appearance.Neutral" Style="color: white;" Items="organizationUserNames" @bind-SelectedOption="product.UserName" @onchange="(e) => ChangeProductUser(e, product.Id)"></FluentCombobox></td>
+                                            }
+                                            else
+                                            {
+                                                <td>@product.UserName</td>
+                                            }
+
+                                            @* Product Name *@
+                                            <td>@product.Name</td>
+
+                                            @* Quantity *@
+                                            @if ((currentUser.DisplayName == orderUserName) || (currentUser.DisplayName == product.UserName))
+                                            {
+                                                <td style="min-width: 120px">
+                                                    <button @onclick="() => DecreaseQuantity(product)">-</button>
+                                                    @product.Quantity
+                                                    <button @onclick="() => IncreaseQuantity(product)">+</button>
+                                                </td>
+                                            }
+                                            else
+                                            {
+                                                <td style="min-width: 120px">@product.Quantity</td>
+                                            }
+
+                                            @* Price *@
+                                            <td style="min-width: 90px;">@((product.Price * product.Quantity).ToString("F2")) zł</td>
+
+                                            @* Comment *@
+                                            @if (product.Comments != null)
+                                            {
+                                                if (isAddingComment.Any() && isAddingComment.TryGetValue(product.Id, out bool boolProductId) && isEditing)
+                                                {
+                                                    <tr>
+                                                        <td class="comment_text"><InputText @bind-Value="@text" /></td>
+                                                        <td><FluentButton Appearance="Appearance.Accent" @onclick="() => AddCommentButton(product.Id, text, products.PageIndex, PAGESIZE)">Zapisz</FluentButton></td>
+                                                    </tr>
+                                                }
+                                                else
+                                                {
+                                                    if (product.Comments.Count > 0)
+                                                    {
+                                                        @foreach (var comment in product.Comments)
+                                                        {
+                                                        <tr>
+                                                                @if (isEditing && isEditingComment.Any() && isEditingComment.TryGetValue(comment.Id, out bool boolCommentId))
+                                                                {
+                                                                    <td class="comment_text"><InputText @bind-Value="@comment.Text" /></td>
+                                                                    <td><FluentButton Appearance="Appearance.Accent" @onclick="() => EditCommentButton(comment.Id, comment.Text)">Zapisz</FluentButton></td>
+                                                                }
+                                                                else if (!isEditing && comment.UserName == currentUser.DisplayName)
+                                                                {
+                                                                <td class="comment_text"><p style="margin: 0;"><b>@comment.UserName:</b></p><p style="margin: 0;">@comment.Text</p></td>
+                                                                    <td><FluentButton Appearance="Appearance.Accent" @onclick="() => EditCommentModeButton(comment.Id)">Edytuj</FluentButton></td>
+                                                                    <td><FluentButton Appearance="Appearance.Accent" @onclick="() => DeleteCommentButton(comment.Id, product.Id, products.PageIndex, PAGESIZE)">Usuń</FluentButton></td>
+                                                                }
+                                                                else
+                                                                {
+                                                                <td class="comment_text"><p style="margin: 0;"><b>@comment.UserName:</b></p><p style="margin: 0;">@comment.Text</p></td>
+                                                                }
+                                                            </tr>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <tr style="display: flex; justify-content: flex-start">
+                                                            <td class="comment_text_none">-</td>
+                                                        </tr>
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <tr style="display: flex; justify-content: flex-start">
+                                                    <td class="comment_text_none">-</td>
+                                                </tr>
+                                            }
+
+                                            @* Comment And Delete Buttons *@
+                                            if ((currentUser.DisplayName == orderUserName || product.UserName == currentUser.DisplayName) && !isEditing && !isNewComment)
+                                            {
+                                                <td><FluentButton Appearance="Appearance.Accent" @onclick="() => AddCommentModeButton(product.Id)">Dodaj komentarz</FluentButton></td>
+                                                <td><FluentButton Appearance="Appearance.Accent" Class="button_delete_product" @onclick="() => DeleteProduct(product)">Usuń produkt</FluentButton></td>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <td><p>@product.UserName</p></td>
+                                            <td>@product.Name</td>
+                                            <td style="min-width: 120px">@product.Quantity</td>
+                                            <td style="min-width: 90px;">@((product.Price * product.Quantity).ToString("F2")) zł</td>
+                                            foreach (var comment in product.Comments)
+                                            {
+                                                <div style="display: flex; flex-direction: column;">
+                                                    <td class="comment_text"><p style="margin: 0;"><b>@comment.UserName:</b></p><p style="margin: 0;">@comment.Text</p></td>
+                                                </div>
+                                            }
+                                        }
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+
+                    <div style="display: flex; justify-content: space-between; margin: 50px 0;">
+                        <FluentButton Appearance="Appearance.Neutral" @onclick="(e) => PreviousPage(products.PageIndex, PAGESIZE)" Disabled="@(products.PageIndex == 1)">Poprzednia</FluentButton>
+                        <span>Strona @products.PageIndex z @products.TotalPages</span>
+                        <FluentButton Appearance="Appearance.Neutral" @onclick="(e) => NextPage(products.PageIndex, PAGESIZE, products.TotalPages)" Disabled="@(products.PageIndex == products.TotalPages)">Następna</FluentButton>
+                    </div>
+                }
+                else
+                {
+                    <p style="display: flex; justify-content: center;">Brak dodanych produktów.</p>
+                }
+                
+                @if (orderStatus != "Zamknięte")
+                {
+                    <EditForm Model="product" OnValidSubmit="AddProductForm">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+
+                        <div class="edit_form_add_product">
+                            <div>
+                                <label for="name">Nazwa</label>
+                                <InputText class="fields" id="name" @bind-Value="product.Name" />
+                            </div>
+                            <div>
+                                <label for="price">Cena</label>
+                                <InputNumber class="fields" id="price" @bind-Value="product.Price" step="0.01" />
+                            </div>
+                            <div>
+                                <FluentButton Appearance="Appearance.Accent" Type="ButtonType.Submit">Dodaj</FluentButton>
+                            </div>
+                        </div>
+                    </EditForm>
+                }
+                
+
+                <div style="margin-top: 20px;">
+                    @if (products != null && !products.Items.Any())
+                        {
+                        <div><b>Razem: </b>0 zł</div>
+                    }
+                    else if (_totalAmount < order.FreeDeliveryPrice)
+                    {
+                        <div><b>Razem: </b>@_totalAmount.ToString("F2") zł</div>
+                        <div><b>Dostawa: </b>@order.DeliveryPrice zł</div>
+                    }
+                    else
+                    {
+                        <div><b>Razem: </b>@_totalAmount.ToString("F2")</div>
+                    }
+                    
+                    <div>
+                        @if (products != null)
+                        {
+                            var displayedUserNames = new HashSet<string>();
+
+                            int userCount = products.Items.Select(op => op.UserName).Distinct().Count();
+
+                            @foreach (var product in products.Items)
+                            {
+                                if (displayedUserNames.Add(product.UserName))
+                                {
+                                    if (_totalAmount < order.FreeDeliveryPrice)
+                                    {
+                                        decimal userTotal = products.Items.Where(op => op.UserName == product.UserName).Sum(op => op.Price * op.Quantity);
+                                        
+                                        userTotal += Math.Round(order.DeliveryPrice / userCount, 2);
+                                        userTotal.ToString("F2");
+
+                                        <p>@product.UserName do zapłaty: @userTotal zł</p>
+                                    }
+                                    else
+                                    {
+                                        <p>@product.UserName do zapłaty: @products.Items.Where(op => op.UserName == product.UserName).Sum(op => op.Price * op.Quantity).ToString("F2") zł</p>
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            <p>Ładowanie...</p>
+                        }
+                    </div>
+
+                    @if (_totalAmount < order.MinPrice)
+                    {
+                        <div>Do minimalnej kwoty zamówienia zostało: @(order.MinPrice - _totalAmount) zł</div>
+                    }
+                    else if (_totalAmount < order.FreeDeliveryPrice)
+                    {
+                        <div>Do darmowej dostawy zostało: @(order.FreeDeliveryPrice - _totalAmount) zł</div>
+                    }
+                </div>
+            </div>
+
+            <FluentButton Appearance="Appearance.Accent" style="margin: 20px 0" @onclick="BackToOrdersListButton">Wróć</FluentButton>
+        </div>
+    </div>
+
+    <div>
+        <img @onclick="OpenChat" class="image_conversation" src="/chat.png" />
+        <div class="chat_conversation" style="display: none;">
+            <div class="messages_container">
+                @if (messages != null)
+                {
+                    foreach (var message in messages)
+                    {
+                        if (message.UserName == currentUser.DisplayName)
+                        {
+                            <div class="message message_current_user">
+                                <p class="message_userName">@message.UserName</p>
+                                <p class="message_text">@message.Message</p>
+                                <p class="message_time">@message.DateTime.ToString("HH:mm")</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="message message_others">
+                                <p class="message_userName">@message.UserName</p>
+                                <p class="message_text">@message.Message</p>
+                                <p class="message_time">@message.DateTime.ToString("HH:mm")</p>
+                            </div>
+                        }
+                    }
+                }
+            </div>
+            <div class="input_container">
+                <InputText class="input_chat" type="text" @bind-Value="@message" placeholder="Napisz wiadomość" />
+                <button type="submit" @onclick="AddMessage">Wyślij</button>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; margin-top: 200px">
+        <p>Ładowanie...</p>
+    </div>
+}
+
+<style>
+    .image_conversation {
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        width: 50px;
+    }
+
+    .chat_conversation {
+        flex-direction: column;
+        width: 300px;
+        height: 500px;
+        position: absolute;
+        top: 60px;
+        right: 75px;
+        background-color: white;
+        border-radius: 30px;
+        overflow: hidden;
+        overflow-y: scroll;
+    }
+
+    .messages_container {
+        flex-grow: 1;
+        overflow-y: scroll;
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+    }
+
+    .message {
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+        max-width: 80%;
+        word-wrap: break-word;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .message_current_user {
+        background-color: #fff3e0;
+        align-self: flex-end;
+        text-align: right;
+    }
+
+    .message_others {
+        background-color: #eaebff;
+        align-self: flex-start;
+        text-align: left;
+    }
+
+    .message_userName {
+        color: black;
+        font-weight: 700;
+        margin: 0;
+        font-size: 14px;
+        text-align: left;
+    }
+
+    .message_text {
+        color: black;
+        text-align: left;
+        margin: 5px 0;
+        font-size: 14px;
+    }
+
+    .message_time {
+        font-size: 12px;
+        color: gray;
+        margin: 0;
+        text-align: right;
+    }
+
+    .input_container {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        background-color: #f1f1f1;
+        border-top: 1px solid #ddd;
+        position: sticky;
+        bottom: 0;
+    }
+
+    .input_chat {
+        flex-grow: 1;
+        margin-right: 10px;
+        padding: 5px;
+        border-radius: 15px;
+        border: 1px solid #ccc;
+    }
+
+    .order_products_tr td {
+        vertical-align: top;
+    }
+
+    .comment_text {
+        min-width: 200px;
+        text-align: center;
+    }
+    .comment_text_none {
+        min-width: 200px;
+        text-align: center;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public int orderId { get; set; }
+
+    private bool isLoaded = false;
+    string errorMessage;
+    HttpClient client = new HttpClient()
+        {
+            BaseAddress = new Uri("https://localhost:44302")
+        };
+    private const int PAGESIZE = 5;
+
+    private OrderDetailsDto order;
+    private Product product = new Product();
+    private User currentUser;
+    private string orderUserName = "";
+
+    private PaginatedList<Product> products;
+    private List<Comment> comments;
+    private List<User> users = null;
+    private List<String> orderStatuses = new List<String> { "Otwarte", "Zamówione", "Zamknięte" };
+    private List<String> organizationUserNames = null;
+
+    private string orderStatus;
+    private decimal _totalAmount = 0;
+    private decimal _totalAmountForUser = 0;
+
+    private Dictionary<int, bool> isEditingComment = new Dictionary<int, bool>();
+    private Dictionary<int, bool> isAddingComment = new Dictionary<int, bool>();
+    private bool isEditing = false;
+    private bool isNewComment = false;
+    private string text = "";
+
+    private HubConnection hubConnection;
+    private List<ChatUserMessage> messages = new List<ChatUserMessage>();
+    private string message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            hubConnection = new HubConnectionBuilder()
+                .WithUrl(MyNavigationManager.ToAbsoluteUri("/chathub"))
+                .Build();
+
+            hubConnection.On<string, string>("ReceiveMessage", (user, message) =>
+            {
+                var newMessage = new ChatUserMessage { UserName = user, Message = message, DateTime = DateTime.Now };
+                messages.Add(newMessage);
+                InvokeAsync(StateHasChanged);
+            });
+
+            await hubConnection.StartAsync();
+
+            await LoadOrder();
+            await LoadProducts(1, PAGESIZE);
+
+            orderStatus = order.Status;
+            UpdateAmounts();
+            isLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Wystąpił nieoczekiwany błąd: {ex.Message}";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        if (firstRender)
+        {
+            users = await MyGraphService.GetAllUsersAsync();
+
+            organizationUserNames = users.Select(user => user.DisplayName).ToList();
+
+            currentUser = await MyGraphService.GetCurrentUserProfileAsync();
+            var user = await MyGraphService.GetUserByUserMail(order.UserEmail);
+            orderUserName = user.DisplayName;
+
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadOrder()
+    {
+        var response = await client.GetAsync($"api/Orders/getOrderById/{orderId}");
+        if (response.IsSuccessStatusCode)
+        {
+            order = await response.Content.ReadFromJsonAsync<OrderDetailsDto>();
+        }
+        else
+        {
+            throw new OrderNotFoundException(orderId);
+        }
+    }
+
+    private async Task LoadProducts(int pageIndex, int pageSize)
+    {
+        var response = await client.GetAsync($"api/Products/getProducts?orderId={orderId}&pageIndex={pageIndex}&pageSize={pageSize}");
+        if (response.IsSuccessStatusCode)
+        {
+            products = await response.Content.ReadFromJsonAsync<PaginatedList<Product>>();
+
+            response = await client.GetAsync($"api/Comments/getComments/{orderId}");
+            if (response.IsSuccessStatusCode)
+            {
+                comments = await response.Content.ReadFromJsonAsync<List<Comment>>();
+            }
+        }
+        else
+        {
+            errorMessage = "Wystąpił błąd podczas ładowania produktów zamówienia.";
+            return;
+        }
+    }
+
+    private async Task AddProductForm()
+    {
+        var profile = await MyGraphService.GetCurrentUserProfileAsync();
+        if (profile != null)
+        {
+            var newOrderProduct = new Product
+            { 
+                OrderId = order.Id,
+                UserName = profile.DisplayName,
+                Name = product.Name,
+                Quantity = 1,
+                Price = Math.Round(product.Price, 2)
+            };
+
+            var response = await client.PostAsJsonAsync("api/Products", newOrderProduct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadProducts(products.PageIndex, PAGESIZE);
+                product = new Product();
+
+                UpdateAmounts();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async void DecreaseQuantity(Product orderProduct)
+    {
+        if (orderProduct.Quantity > 1)
+        {
+            string increase = "Decrease";
+
+            await client.PostAsJsonAsync($"api/Products/changeQuantity/{orderProduct.Id}", increase);
+            orderProduct.Quantity--;
+
+            UpdateAmounts();
+            StateHasChanged();
+        }
+    }
+
+    private async void IncreaseQuantity(Product orderProduct)
+    {
+        if (orderProduct.Quantity < 100)
+        {
+            string increase = "Increase";
+
+            await client.PostAsJsonAsync($"api/Products/changeQuantity/{orderProduct.Id}", increase);
+
+            orderProduct.Quantity++;
+
+            UpdateAmounts();
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateAmounts()
+    {
+        _totalAmount = products.Items.Sum(op => op.Price * op.Quantity);
+    }
+
+    private async Task ChangeOrderStatus(ChangeEventArgs e)
+    {
+        var response = await client.PostAsJsonAsync($"api/orders/{order.Id}", e.Value.ToString());
+    }
+
+    private async Task ChangeProductUser(ChangeEventArgs e, int orderProductId)
+    {
+        var response = await client.PostAsJsonAsync($"api/Products/change/{orderProductId}", e.Value.ToString());
+    }
+
+    private async Task DeleteProduct(Product orderProduct)
+    {
+        await client.PostAsync($"api/Products/delete/{orderProduct.Id}", null);
+        products.Items.Remove(orderProduct);
+
+        UpdateAmounts();
+        StateHasChanged();
+    }
+
+    private void EditOrderData(int orderId)
+    {
+        MyNavigationManager.NavigateTo($"/create-new-order/{orderId}");
+    }
+
+    private void EditCommentModeButton(int commentId)
+    {
+        if (!isEditingComment.Any() && !isEditing)
+        {
+            isEditing = true;
+            isEditingComment.Add(commentId, true);
+
+            StateHasChanged();
+        }
+    }
+
+    private void AddCommentModeButton(int productId)
+    {
+        if (!isAddingComment.Any() && !isEditing)
+        {
+            isEditing = true;
+            isAddingComment.Add(productId, true);
+
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddCommentButton(int orderProductId, string text, int pageIndex, int pageSize)
+    {
+        if (text != "")
+        {
+            var newComment = new Comment
+                {
+                    ProductId = orderProductId,
+                    OrderId = order.Id,
+                    UserName = currentUser.DisplayName,
+                    Text = text
+                };
+            var response = await client.PostAsJsonAsync($"api/Comments/addComment", newComment);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadProducts(pageIndex, pageSize);
+            }
+        }
+
+        this.text = "";
+        isNewComment = false;
+        isEditing = false;
+        isEditingComment = new Dictionary<int, bool>();
+        isAddingComment = new Dictionary<int, bool>();
+        StateHasChanged();
+    }
+
+    private async Task EditCommentButton(int commentId, string text)
+    {
+        if (text != "")
+        {
+            var response = await client.PostAsJsonAsync($"api/Comments/editComment/{commentId}", text);
+        }
+
+        isNewComment = false;
+        isEditing = false;
+        isEditingComment = new Dictionary<int, bool>();
+        StateHasChanged();
+    }
+
+    private async Task DeleteCommentButton(int commentId, int productId, int pageIndex, int pageSize)
+    {
+        var response = await client.DeleteAsync($"api/Comments/deleteComment/{commentId}");
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadProducts(pageIndex, pageSize);
+            StateHasChanged();
+        }
+    }
+
+    private async Task PreviousPage(int pageIndex, int pageSize)
+    {
+        if (pageIndex > 1)
+        {
+            pageIndex--;
+            await LoadProducts(pageIndex, pageSize);
+        }
+    }
+
+    private async Task NextPage(int pageIndex, int pageSize, int totalPages)
+    {
+        if (pageIndex < totalPages)
+        {
+            pageIndex++;
+            await LoadProducts(pageIndex, pageSize);
+        }
+    }
+
+    private async Task OpenChat()
+    {
+        await JSRuntime.InvokeVoidAsync("OpenChat");
+
+        var response = await client.GetAsync($"api/chatMessages/getMessages/{orderId}");
+        if (response.IsSuccessStatusCode)
+        {
+            messages = await response.Content.ReadFromJsonAsync<List<ChatUserMessage>>();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task AddMessage()
+    {
+        var newMessage = new ChatUserMessage
+            {
+                OrderId = order.Id,
+                UserName = currentUser.DisplayName,
+                Message = message,
+                DateTime = DateTime.Now
+            };
+
+        var response = await client.PostAsJsonAsync("api/chatMessages/addMessage", newMessage);
+        if (response.IsSuccessStatusCode)
+        {
+            await hubConnection.SendAsync("SendMessage", currentUser.DisplayName, message);
+            message = string.Empty;
+
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection != null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    private void BackToOrdersListButton()
+    {
+        MyNavigationManager.NavigateTo("/");
+    }
+}

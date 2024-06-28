@@ -1,0 +1,218 @@
+﻿@using FoodOrdering.Models
+@using FoodOrdering.Models.DTO
+@using FoodOrdering.Models.Pagination
+@inject NavigationManager MyNavigationManager
+@inject GraphService MyGraphService
+@rendermode InteractiveServer
+
+<h3 style="display: flex; justify-content: center;">Lista wszystkich zamówień</h3>
+
+@if (orders == null || !IsLoading)
+{
+    <p>Ładowanie...</p>
+}
+else if (orders.Items.Count > -1 && IsLoading)
+{
+    <div class="filters">
+        <button class="dropdown_button">Filtry</button>
+        <div class="dropdown_content">
+            @foreach (var filtr in FILTERS)
+            {
+                <div>
+                    @if (filtr == "Otwarte" || filtr == "Zamówione")
+                    {
+                        <input checked type="checkbox" id="@filtr" @onchange="(e) => OnFilterChange(e.Value, filtr, orders.PageIndex)">
+                        <label for="@filtr">@filtr</label>
+                    }
+                    else
+                    {
+                        <input type="checkbox" id="@filtr" @onchange="(e) => OnFilterChange(e.Value, filtr, orders.PageIndex)">
+                        <label for="@filtr">@filtr</label>    
+                    }
+                </div>
+            }
+        </div>
+    </div>
+    if (!orders.Items.Any())
+    {
+        <p>Brak zamówień o podanych filtrach.</p>
+    }
+    else
+    {
+        <table class="table_ordersList">
+            <thead>
+                <tr>
+                    <th>Nazwa zamówienia</th>
+                    <th>Zamawiający</th>
+                    <th>Data zamówienia</th>
+                    <th>Status zamówienia</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var order in orders.Items)
+                {
+                    <tr class="table_tr_ordersList">
+                        <td style="text-align: center;">@order.Name</td>
+                        <td style="text-align: center;">@order.UserEmail</td>
+                        <td style="text-align: center;">@order.Date.ToString("dd.MM.yyyy")</td>
+                        <td style="text-align: center;">@order.Status</td>
+                        <td><FluentButton Appearance="Appearance.Neutral" @onclick="() => EditOrderFunction(order.Id)">Przeglądaj</FluentButton></td>
+                        @if (order.Status != "Zamknięte" && currentUser.Mail == order.UserEmail)
+                        {
+                            <td><FluentButton Appearance="Appearance.Stealth" @onclick="() => DeleteOrderFunction(order.Id, orders.PageIndex, PAGESIZE)">Usuń</FluentButton></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div style="display: flex; justify-content: space-between; margin: 50px 0;">
+            <FluentButton Appearance="Appearance.Neutral" @onclick="(e) => PreviousPage(orders.PageIndex, PAGESIZE)" Disabled="@(orders.PageIndex == 1)">Poprzednia</FluentButton>
+            <span>Strona @orders.PageIndex z @orders.TotalPages</span>
+            <FluentButton Appearance="Appearance.Neutral" @onclick="(e) => NextPage(orders.PageIndex, PAGESIZE, orders.TotalPages)" Disabled="@(orders.PageIndex == orders.TotalPages)">Następna</FluentButton>
+        </div>
+    }
+}
+else
+{
+    <p>Brak zamówień.</p>
+}
+
+<div style="display: flex; justify-content: center">
+    <FluentButton class="new_order_button" Style="margin-top: 20px" @onclick="CreateNewOrder">Nowe zamówienie</FluentButton>
+</div>
+
+<style>
+    .dropdown_button {
+        background-color: slategrey;
+        color: white;
+        border: 5px solid red;
+        padding: 10px;
+        font-size: 16px;
+        border: none;
+        cursor: pointer;
+    }
+
+    .filters {
+        position: relative;
+        display: inline-block;
+    }
+
+    .dropdown_content {
+        display: none;
+        position: absolute;
+        background-color: #f9f9f9;
+        min-width: 160px;
+        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+        z-index: 1;
+    }
+
+        .dropdown_content div {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+        }
+
+            .dropdown_content div:hover {
+                background-color: #f1f1f1;
+            }
+
+    .filters:hover .dropdown_content {
+        display: block;
+    }
+</style>
+
+@code {
+    HttpClient client = new HttpClient()
+        {
+            BaseAddress = new Uri("https://localhost:44302")
+        };
+    public bool IsLoading = false;
+
+    PaginatedList<OrderDto> orders;
+
+    private const int PAGESIZE = 3;
+    private static List<String> FILTERS = new List<String> { "Otwarte", "Zamówione", "Zamknięte" };
+    private List<String> selectedFilters = new List<String>() { "Otwarte", "Zamówione" };
+
+    private User currentUser = new User();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrders(1, PAGESIZE);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        if (firstRender)
+        {
+            IsLoading = true;
+            currentUser = await MyGraphService.GetCurrentUserProfileAsync();
+            
+            StateHasChanged();
+        }
+    }
+
+    private async void OnFilterChange(object isChecked, string filter, int pageIndex)
+    {
+        List<String> selectedFiltersCopy = new List<String>(selectedFilters);
+
+        if ((bool)isChecked)
+        {
+            selectedFiltersCopy.Add(filter);
+        }
+        else
+        {
+            selectedFiltersCopy.Remove(filter);
+        }
+
+        selectedFilters = selectedFiltersCopy;
+
+        await LoadOrders(pageIndex, PAGESIZE);
+    }
+
+    private void CreateNewOrder()
+    {
+        MyNavigationManager.NavigateTo("/create-new-order");
+    }
+
+    private void EditOrderFunction(int orderId)
+    {
+        MyNavigationManager.NavigateTo($"/edit-order/{orderId}");
+    }
+
+    private async Task DeleteOrderFunction(int orderId, int pageIndex, int pageSize)
+    {
+        await client.PostAsJsonAsync($"api/orders/delete/{orderId}", currentUser.Mail);
+        await LoadOrders(pageIndex, pageSize);
+        StateHasChanged();
+    }
+
+    private async Task PreviousPage(int pageIndex, int pageSize)
+    {
+        if (pageIndex > 1)
+        {
+            pageIndex--;
+            await LoadOrders(pageIndex, pageSize);
+        }
+    }
+
+    private async Task NextPage(int pageIndex, int pageSize, int totalPages)
+    {
+        if (pageIndex < totalPages)
+        {
+            pageIndex++;
+            await LoadOrders(pageIndex, pageSize);
+        }
+    }
+
+    private async Task LoadOrders(int pageIndex, int pageSize)
+    {
+        var filters = selectedFilters.Any() ? string.Join(',', selectedFilters) : "";
+        var response = await client.GetAsync($"api/orders/getAllOrders?selectedFilters={filters}&pageIndex={pageIndex}&pageSize={pageSize}");
+        orders = await response.Content.ReadFromJsonAsync<PaginatedList<OrderDto>>();
+        StateHasChanged();
+    }
+}
