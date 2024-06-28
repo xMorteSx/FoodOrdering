@@ -1,0 +1,115 @@
+body {
+    background-image: url('../wallpaper.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    color: white;
+}
+
+.label {
+    font-size: 28px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.table_ordersList tr {
+    border: 4px solid white;
+}
+
+.table_ordersList th {
+    color: #F8700C;
+    font-size: 20px;
+    padding: 5px;
+    font-weight: bold;
+}
+
+.table_ordersList tr {
+    border: 4px solid #5E5E5E;
+    border-radius: 30px;
+}
+
+.order_label {
+    color: #F8700C;
+}
+
+.order {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 15px;
+    border: 3px solid #5E5E5E;
+    border-radius: 30px;
+}
+
+.order_menu {
+    display: flex;
+    justify-content: center;
+}
+
+.left_order_menu {
+    min-width: 350px;
+}
+
+.right_order_menu {
+    min-width: 350px;
+    margin-bottom: 20px;
+}
+
+.left_order_menu div, .right_order_menu div {
+    padding: 2px;
+}
+
+.edit_form_add_product {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+
+.edit_form_add_product div {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.edit_form_add_product label {
+    width: 100px;
+    text-align: right;
+    margin-right: 10px;
+}
+
+.fields {
+    font-size: 14px;
+    padding: 5px;
+    border-radius: 30px;
+    flex: 1;
+}
+
+.field_comment {
+    font-size: 12px;
+    padding: 3px;
+}
+
+.edit-form-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.edit-form-container div {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.edit-form-container label {
+    width: 200px;
+    text-align: right;
+    margin-right: 10px;
+}
+
+.order_products_tr td {
+    padding: 15px;
+}
