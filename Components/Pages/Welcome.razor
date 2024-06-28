@@ -1,0 +1,41 @@
+﻿@using Microsoft.Extensions.Configuration
+@using Microsoft.AspNetCore.Hosting
+@using Microsoft.Extensions.Hosting
+@inject TeamsFx teamsfx
+@inject TeamsUserCredential teamsUserCredential
+@inject IWebHostEnvironment HostEnvironment
+@inject IConfiguration Configuration
+@inject NavigationManager MyNavigationManager
+@rendermode InteractiveServer
+
+<Loading>
+    <div class="welcome page">
+        <div class="narrow page-padding">
+
+            <div class="label">Zamów swoje ulubione jedzenie!</div>
+
+            <OrdersList />
+        </div>
+    </div>
+</Loading>
+
+@code {
+    string userName;
+    string errorMessage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        if (firstRender)
+        {
+            var user = await teamsUserCredential.GetUserInfoAsync();
+            userName = user.DisplayName;
+        }
+        StateHasChanged();
+    }
+
+    private string GetEnvironmentName()
+    {
+        return HostEnvironment.IsDevelopment() ? "local environment" : "Azure environment";
+    }
+}

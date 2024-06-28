@@ -1,0 +1,180 @@
+﻿@page "/create-new-order/{OrderId:int?}"
+@inject TeamsNotificationService MyTeamsNotificationService
+@inject GraphService MyGraphService
+@inject IHttpClientFactory HttpClientFactory
+@inject IConfiguration Configuration
+@inject NavigationManager MyNavigationManager
+@inject TeamsUserCredential teamsUserCredential
+@rendermode InteractiveServer
+
+<div style="max-width: 600px; margin: 0 auto;">
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; max-width: 600px">
+        @if (updatedOrder != null)
+        {
+            <h3>Edytowanie zamówienia</h3>
+
+            <EditForm Model="updatedOrder" OnValidSubmit="HandleValidSubmit" class="edit-form-container">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div>
+                    <label for="restaurantName">Nazwa restauracji: </label>
+                    <InputText class="fields" id="restaurantName" @bind-Value="updatedOrder.RestaurantName" />
+                </div>
+                <div>
+                    <label for="minPrice">Minimalna kwota zamówienia: </label>
+                    <InputNumber class="fields" id="minPrice" @bind-Value="updatedOrder.MinPrice" />
+                </div>
+                <div>
+                    <label for="deliveryPrice">Koszt dostawy: </label>
+                    <InputNumber class="fields" id="deliveryPrice" @bind-Value="updatedOrder.DeliveryPrice" />
+                </div>
+                <div>
+                    <label for="freeDeliveryPrice">Darmowa dostawa od: </label>
+                    <InputNumber class="fields" id="freeDeliveryPrice" @bind-Value="updatedOrder.FreeDeliveryPrice" />
+                </div>
+                <div>
+                    <label for="phoneNumber">Numer telefonu: </label>
+                    <InputText class="fields" id="phoneNumber" @bind-Value="updatedOrder.PhoneNumber" />
+                </div>
+                <div>
+                    <label for="bankAccountNumber">Konto bankowe: </label>
+                    <InputText class="fields" id="bankAccountNumber" @bind-Value="updatedOrder.BankAccountNumber" />
+                </div>
+                <FluentButton Appearance="Appearance.Accent" Type="ButtonType.Submit">Zapisz zmiany</FluentButton>
+            </EditForm>
+        }
+        else
+        {
+            <h3>Tworzenie nowego zamówienia</h3>
+
+            <EditForm Model="createNewOrder" OnValidSubmit="HandleValidSubmit" class="edit-form-container">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div>
+                    <label for="name">Nazwa zamówienia: </label>
+                    <InputText class="fields" id="name" @bind-Value="createNewOrder.Name" />
+                </div>
+                <div>
+                    <label for="restaurantName">Nazwa restauracji: </label>
+                    <InputText class="fields" id="restaurantName" @bind-Value="createNewOrder.RestaurantName" />
+                </div>
+                <div>
+                    <label for="minPrice">Minimalna kwota zamówienia: </label>
+                    <InputNumber class="fields" id="minPrice" @bind-Value="createNewOrder.MinPrice" />
+                </div>
+                <div>
+                    <label for="deliveryPrice">Koszt dostawy: </label>
+                    <InputNumber class="fields" id="deliveryPrice" @bind-Value="createNewOrder.DeliveryPrice" />
+                </div>
+                <div>
+                    <label for="freeDeliveryPrice">Darmowa dostawa od: </label>
+                    <InputNumber class="fields" id="freeDeliveryPrice" @bind-Value="createNewOrder.FreeDeliveryPrice" />
+                </div>
+                <div>
+                    <label for="phoneNumber">Numer telefonu: </label>
+                    <InputText class="fields" id="phoneNumber" @bind-Value="createNewOrder.PhoneNumber" />
+                </div>
+                <div>
+                    <label for="bankAccountNumber">Konto bankowe: </label>
+                    <InputText class="fields" id="bankAccountNumber" @bind-Value="createNewOrder.BankAccountNumber" />
+                </div>
+                <FluentButton Appearance="Appearance.Accent" Type="ButtonType.Submit">Stwórz zamówienie</FluentButton>
+            </EditForm>
+        }       
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div style="color: red">@errorMessage</div>
+        }
+
+        <FluentButton Appearance="Appearance.Accent" style="margin-top: 20px;" @onclick="BackToOrdersListButton">Wróć</FluentButton>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int? OrderId { get; set; }
+    private OrderUpdateDto updatedOrder = null;
+
+    bool isDescriptionVisible = false;
+    string minOrderPriceFilter = "";
+
+    public User Profile { get; set; }
+
+    private Order newOrder = new Order();
+    private string errorMessage;
+
+    private CreateOrderCommand createNewOrder = new CreateOrderCommand();
+
+    HttpClient client = new HttpClient()
+        {
+            BaseAddress = new Uri("https://localhost:44302")
+        };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OrderId.HasValue)
+        {
+            var response = await client.GetAsync($"api/Orders/getOrderById/{OrderId}");
+            if (response.IsSuccessStatusCode)
+            {
+                updatedOrder = await response.Content.ReadFromJsonAsync<OrderUpdateDto>();
+            }
+            else
+            {
+                throw new OrderNotFoundException(OrderId);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+        if (firstRender)
+        {
+            Profile = await MyGraphService.GetCurrentUserProfileAsync();
+        }
+        StateHasChanged();
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (updatedOrder != null)
+        {
+            var response = await client.PostAsJsonAsync("api/orders/updateOrder", updatedOrder);
+
+            if (response.IsSuccessStatusCode)
+            {
+                MyNavigationManager.NavigateTo($"/edit-order/{OrderId}");
+            }
+        }
+        else
+        {
+            createNewOrder.UserEmail = Profile.Mail;
+            createNewOrder.Status = "Otwarte";
+            createNewOrder.Date = DateTime.Now.Date;
+
+            var response = await client.PostAsJsonAsync("api/orders", createNewOrder);
+
+            if (response.IsSuccessStatusCode)
+            {
+                await MyTeamsNotificationService.SendNewOrderNotificationAsync(createNewOrder.Name, new Uri("https://localhost:44302"));
+                MyNavigationManager.NavigateTo("/");
+            }
+        }
+    }
+
+    private void BackToOrdersListButton()
+    {
+        if (updatedOrder != null)
+        {
+            MyNavigationManager.NavigateTo($"/edit-order/{OrderId}");
+        }
+        else
+        {
+            MyNavigationManager.NavigateTo("/");
+        }
+    }
+}
